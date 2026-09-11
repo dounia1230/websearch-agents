@@ -4,11 +4,12 @@ This repository implements a typed, explainable research workflow built around L
 
 Core flow:
 
-1. `research_agent`
-2. `critic_agent`
-3. `summarizer_agent`
-4. `vision_agent` when image input exists
-5. `synthesizer_agent`
+1. `planner_agent`
+2. `research_agent`
+3. `critic_agent`
+4. `summarizer_agent`
+5. `vision_agent` when image input exists
+6. `synthesizer_agent`
 
 The pipeline is opinionated around:
 
@@ -43,12 +44,14 @@ multi_agent_research_assistant/
 ## Features
 
 - `LangGraph` orchestrates the research and critique loop.
+- `Planner Agent` interprets user intent and generates focused Tavily searches before retrieval starts.
 - `LangChain` drives prompt execution and model interaction.
 - `Tavily` provides web search results.
 - `Jina Reader` converts selected web pages into cleaner text.
 - `LlamaIndex` + `ChromaDB` can retrieve context from local/private documents.
 - Structured `pydantic` schemas keep agent outputs predictable.
 - Source quality heuristics filter suspicious or thin sources before synthesis.
+- Planner-aware intent screening and critic-side relevance scoring filter out broad but off-context sources.
 - Optional image input triggers a separate vision analysis step.
 
 ## Configuration
@@ -71,6 +74,9 @@ MAX_GENERATION_TOKENS=1200
 MAX_SOURCE_CONTENT_CHARS=2500
 MAX_READER_CONTENT_CHARS=4500
 MIN_SOURCE_QUALITY_SCORE=0.55
+MIN_INTENT_ALIGNMENT_SCORE=0.30
+MIN_CRITIC_RELEVANCE_SCORE=0.55
+MIN_CRITIC_OVERALL_SCORE=0.60
 REQUEST_TIMEOUT_SECONDS=30
 TAVILY_SEARCH_DEPTH=advanced
 TAVILY_TOPIC=general
@@ -130,6 +136,62 @@ The CLI prints a final structured JSON report containing:
 - `vision` when images were analyzed
 - `issues`
 
+## FastAPI Server
+
+Run the workflow as an HTTP API:
+
+```powershell
+cd multi_agent_research_assistant
+uvicorn app.api:app --reload
+```
+
+Or:
+
+```powershell
+python -m app.api
+```
+
+Available endpoints:
+
+- `GET /health`
+- `POST /research`
+- `POST /research/upload`
+
+JSON request example:
+
+```json
+{
+  "question": "Assess the market opportunity for AI-native research assistants in higher education.",
+  "image_paths": []
+}
+```
+
+Multipart upload example:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/research/upload" ^
+  -F "question=Analyze this chart and summarize the implications" ^
+  -F "files=@C:\path\to\chart.png"
+```
+
+## Frontend Dashboard
+
+The React dashboard lives in the repository-level `frontend/` directory. It presents the workflow as a three-panel research workspace rather than a chat interface:
+
+- run controls and optional image upload
+- orchestrator progress with a status card for every agent
+- a structured final report with confidence and clickable sources
+
+Run it in a separate terminal after starting the API:
+
+```powershell
+cd ..\frontend
+npm install
+npm run dev
+```
+
+The browser client calls `POST /research` for text-only runs and `POST /research/upload` when an image is attached. Set `VITE_API_BASE_URL` in `frontend/.env` when the API is not available at `http://127.0.0.1:8000`.
+
 ## Tests
 
 ```powershell
@@ -141,4 +203,4 @@ python -m pytest ..\tests
 - Web failures are tracked as structured pipeline issues where recovery is possible.
 - Source URLs and titles are preserved throughout the workflow.
 - Private retrieval is optional and only activates when `PRIVATE_DATA_DIR` is configured.
-- This is still an MVP workflow. It is backend-first and intentionally avoids UI work until the research pipeline is reliable.
+- This is still an MVP workflow. Agent progress in the dashboard is currently animated client-side; a future event-streaming API can replace that simulation with live graph events.

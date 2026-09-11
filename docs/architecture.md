@@ -4,27 +4,37 @@
 
 The graph executes the following stages:
 
-1. `research`
-2. `critic`
-3. `summarize`
-4. `vision` when `image_paths` exist
-5. `synthesize`
+1. `planner`
+2. `research`
+3. `critic`
+4. `summarize`
+5. `vision` when `image_paths` exist
+6. `synthesize`
 
-The `critic` node can route back to `research` while the retry budget remains.
+The `critic` node can route back to `planner` while the retry budget remains.
 
 ## Agent Responsibilities
 
+`planner_agent`
+
+- interprets the user's actual intent
+- generates 3 to 5 focused search queries
+- defines include/exclude retrieval cues
+- emits a typed `PlannerOutput`
+
 `research_agent`
 
-- queries Tavily
+- uses the planner output to drive multi-query Tavily search
 - enriches top web results with Jina Reader
 - optionally retrieves local/private evidence through LlamaIndex + ChromaDB
-- applies deterministic source-quality heuristics
+- applies deterministic source-quality and initial intent-alignment heuristics
 - emits a typed `ResearchBrief`
 
 `critic_agent`
 
 - checks evidence sufficiency
+- scores sources on authority, relevance to intent, specificity, recency, evidence, and clarity
+- rejects broad, tangential, or wrong-context sources before summarization
 - identifies unsupported or weak claims
 - proposes targeted follow-up queries
 - emits a typed `CritiqueReport`

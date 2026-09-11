@@ -574,3 +574,41 @@ Schema:
   "url": "...",
   "content": "..."
 }
+
+
+
+
+I want you to build the frontend for my orchestrator-based Multi-Agent Research Assistant.
+
+First:
+- inspect the current project structure
+- identify the best place for frontend code
+- propose the smallest clean file structure for this UI
+
+Then implement a modern dashboard frontend using:
+- React
+- Tailwind CSS
+- shadcn/ui
+- lucide-react
+
+UI requirements:
+- 3-panel layout
+- left = input/control
+- center = orchestrator + agent workflow
+- right = structured final report
+- use mock data only for now
+- not a chatbot layout
+- polished SaaS style
+- reusable components
+- loading and empty states
+
+Important:
+- visibly represent the orchestrator and all specialized agents
+- include status badges and mini previews per agent
+- include structured report cards and clickable sources
+- keep the code modular and readable
+
+When done:
+- summarize files created/changed
+- explain how to connect the UI to a backend API later
+- mention any follow-up improvements
