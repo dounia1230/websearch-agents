@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 from urllib.parse import urlparse
 
-from app.schemas import SourceRecord
+from app.schemas import PlannerOutput, SourceAssessment, SourceRecord
 
 PREFERRED_TLDS = (".gov", ".edu", ".ac.uk")
 SUSPICIOUS_TERMS = (
@@ -18,6 +19,34 @@ SUSPICIOUS_TERMS = (
     "cheap",
     "discount",
 )
+STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "about",
+    "what",
+    "when",
+    "where",
+    "who",
+    "your",
+    "their",
+    "have",
+    "mean",
+    "does",
+    "will",
+    "would",
+    "could",
+    "should",
+    "using",
+    "user",
+    "real",
+    "intent",
+}
 
 
 def evaluate_source_quality(source: SourceRecord, minimum_score: float) -> SourceRecord:
@@ -88,6 +117,81 @@ def merge_sources(existing: Iterable[SourceRecord], new_sources: Iterable[Source
     return deduplicate_sources([*existing, *new_sources])
 
 
+def evaluate_source_intent_alignment(
+    source: SourceRecord,
+    query_plan: PlannerOutput,
+    minimum_score: float,
+) -> SourceRecord:
+    text = " ".join(
+        part for part in [source.title, source.snippet, source.raw_content, source.extracted_content] if part
+    ).lower()
+    rationale: list[str] = []
+    score = 0.45
+
+    include_hits = _count_topic_hits(text, query_plan.include_topics)
+    if query_plan.include_topics:
+        if include_hits > 0:
+            score += min(include_hits * 0.12, 0.3)
+            rationale.append("Matched planner include topics.")
+        else:
+            score -= 0.18
+            rationale.append("Missed the planner's expected topic cues.")
+
+    exclude_hits = _count_topic_hits(text, query_plan.exclude_topics)
+    if exclude_hits > 0:
+        score -= min(exclude_hits * 0.18, 0.45)
+        rationale.append("Matched excluded or distracting topics.")
+
+    intent_terms = _extract_terms(query_plan.interpreted_query, query_plan.user_intent)
+    intent_matches = sum(1 for term in intent_terms if term in text)
+    if intent_matches >= 2:
+        score += 0.18
+        rationale.append("Matched multiple interpreted-intent terms.")
+    elif intent_matches == 1:
+        score += 0.08
+        rationale.append("Matched one interpreted-intent term.")
+    else:
+        score -= 0.12
+        rationale.append("Showed weak lexical overlap with the interpreted intent.")
+
+    normalized_score = round(max(0.0, min(score, 1.0)), 3)
+    return source.model_copy(
+        update={
+            "intent_alignment_score": normalized_score,
+            "intent_alignment_rationale": " ".join(rationale) or "Default intent-alignment heuristic applied.",
+            "included": source.included and normalized_score >= minimum_score,
+        }
+    )
+
+
+def apply_source_assessment(
+    source: SourceRecord,
+    assessment: SourceAssessment,
+    minimum_relevance_score: float,
+    minimum_overall_score: float,
+) -> SourceRecord:
+    overall_score = assessment.overall_score
+    include = (
+        source.included
+        and assessment.include
+        and assessment.relevance_to_user_intent >= minimum_relevance_score
+        and overall_score >= minimum_overall_score
+    )
+    return source.model_copy(
+        update={
+            "authority_score": assessment.authority,
+            "relevance_to_user_intent_score": assessment.relevance_to_user_intent,
+            "specificity_score": assessment.specificity,
+            "recency_score": assessment.recency,
+            "evidence_score": assessment.evidence,
+            "clarity_score": assessment.clarity,
+            "critic_score": overall_score,
+            "critic_rationale": assessment.rationale,
+            "included": include,
+        }
+    )
+
+
 def _prefer_richer_source(left: SourceRecord, right: SourceRecord) -> SourceRecord:
     left_weight = _source_richness(left)
     right_weight = _source_richness(right)
@@ -102,6 +206,32 @@ def _prefer_richer_source(left: SourceRecord, right: SourceRecord) -> SourceReco
         "quality_rationale": preferred.quality_rationale
         if preferred.quality_rationale != "Quality has not been evaluated yet."
         else secondary.quality_rationale,
+        "intent_alignment_score": preferred.intent_alignment_score
+        if preferred.intent_alignment_score is not None
+        else secondary.intent_alignment_score,
+        "intent_alignment_rationale": preferred.intent_alignment_rationale
+        if preferred.intent_alignment_score is not None
+        else secondary.intent_alignment_rationale,
+        "authority_score": preferred.authority_score
+        if preferred.authority_score is not None
+        else secondary.authority_score,
+        "relevance_to_user_intent_score": preferred.relevance_to_user_intent_score
+        if preferred.relevance_to_user_intent_score is not None
+        else secondary.relevance_to_user_intent_score,
+        "specificity_score": preferred.specificity_score
+        if preferred.specificity_score is not None
+        else secondary.specificity_score,
+        "recency_score": preferred.recency_score
+        if preferred.recency_score is not None
+        else secondary.recency_score,
+        "evidence_score": preferred.evidence_score
+        if preferred.evidence_score is not None
+        else secondary.evidence_score,
+        "clarity_score": preferred.clarity_score
+        if preferred.clarity_score is not None
+        else secondary.clarity_score,
+        "critic_score": preferred.critic_score if preferred.critic_score is not None else secondary.critic_score,
+        "critic_rationale": preferred.critic_rationale or secondary.critic_rationale,
         "included": preferred.included or secondary.included,
         "metadata": {**secondary.metadata, **preferred.metadata},
     }
@@ -138,3 +268,16 @@ def _label_for_score(score: float) -> str:
     if score >= 0.55:
         return "medium"
     return "low"
+
+
+def _count_topic_hits(text: str, topics: list[str]) -> int:
+    return sum(1 for topic in topics if topic.strip().lower() and topic.strip().lower() in text)
+
+
+def _extract_terms(*texts: str) -> set[str]:
+    terms: set[str] = set()
+    for text in texts:
+        for token in re.findall(r"[a-z0-9][a-z0-9\-]{1,}", text.lower()):
+            if token not in STOPWORDS:
+                terms.add(token)
+    return terms

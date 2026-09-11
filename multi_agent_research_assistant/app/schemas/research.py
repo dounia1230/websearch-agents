@@ -48,6 +48,46 @@ class SourceRecord(StrictModel):
         default="Quality has not been evaluated yet.",
         description="Short explanation for the quality decision.",
     )
+    intent_alignment_score: float | None = Field(
+        default=None,
+        description="Heuristic 0-1 score for how well the source matches the interpreted query plan.",
+    )
+    intent_alignment_rationale: str = Field(
+        default="Intent alignment has not been evaluated yet.",
+        description="Short explanation for the planner-based alignment heuristic.",
+    )
+    authority_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 authority score.",
+    )
+    relevance_to_user_intent_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 relevance score against the interpreted user intent.",
+    )
+    specificity_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 specificity score.",
+    )
+    recency_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 recency score.",
+    )
+    evidence_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 evidence score.",
+    )
+    clarity_score: float | None = Field(
+        default=None,
+        description="Critic-assigned 0-1 clarity score.",
+    )
+    critic_score: float | None = Field(
+        default=None,
+        description="Derived overall critic score based on the scoring dimensions.",
+    )
+    critic_rationale: str | None = Field(
+        default=None,
+        description="Critic explanation for keeping or rejecting the source.",
+    )
     included: bool = Field(
         default=True,
         description="Whether the source remains eligible for downstream reasoning.",
@@ -87,6 +127,49 @@ class ResearchBrief(StrictModel):
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the current brief.")
 
 
+class PlannerOutput(StrictModel):
+    interpreted_query: str = Field(description="Intent-aware restatement of the user's real research ask.")
+    user_intent: str = Field(description="Short explanation of what the user is actually trying to learn.")
+    search_queries: list[str] = Field(
+        min_length=3,
+        max_length=5,
+        description="Three to five precise search queries for Tavily.",
+    )
+    include_topics: list[str] = Field(
+        default_factory=list,
+        description="Concepts or entities that should be present in relevant sources when applicable.",
+    )
+    exclude_topics: list[str] = Field(
+        default_factory=list,
+        description="Concepts or contexts that should usually be filtered out.",
+    )
+    notes: str = Field(description="Short planning notes or caveats for retrieval.")
+
+
+class SourceAssessment(StrictModel):
+    source_id: str = Field(description="Source identifier such as S1 or P1.")
+    authority: float = Field(ge=0.0, le=1.0)
+    relevance_to_user_intent: float = Field(ge=0.0, le=1.0)
+    specificity: float = Field(ge=0.0, le=1.0)
+    recency: float = Field(ge=0.0, le=1.0)
+    evidence: float = Field(ge=0.0, le=1.0)
+    clarity: float = Field(ge=0.0, le=1.0)
+    include: bool = Field(description="Whether the source should remain in the filtered source set.")
+    rationale: str = Field(description="Why the source should be kept or rejected.")
+
+    @property
+    def overall_score(self) -> float:
+        dimensions = [
+            self.authority,
+            self.relevance_to_user_intent,
+            self.specificity,
+            self.recency,
+            self.evidence,
+            self.clarity,
+        ]
+        return round(sum(dimensions) / len(dimensions), 3)
+
+
 class CritiqueReport(StrictModel):
     needs_revision: bool = Field(description="Whether another research pass is warranted.")
     rationale: str = Field(description="Why the brief is sufficient or insufficient.")
@@ -101,6 +184,10 @@ class CritiqueReport(StrictModel):
     follow_up_queries: list[str] = Field(
         default_factory=list,
         description="Search queries that should materially improve coverage if another pass happens.",
+    )
+    source_assessments: list[SourceAssessment] = Field(
+        default_factory=list,
+        description="Per-source scoring across authority, relevance, specificity, recency, evidence, and clarity.",
     )
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the critique decision.")
 
@@ -182,6 +269,8 @@ class ReportSource(StrictModel):
     source_type: Literal["web", "private_data"]
     quality_score: float | None = None
     quality_label: Literal["high", "medium", "low", "unknown"] = "unknown"
+    relevance_score: float | None = None
+    critic_score: float | None = None
 
     @classmethod
     def from_source(cls, source: SourceRecord) -> "ReportSource":
@@ -192,6 +281,8 @@ class ReportSource(StrictModel):
             source_type=source.source_type,
             quality_score=source.quality_score,
             quality_label=source.quality_label,
+            relevance_score=source.relevance_to_user_intent_score,
+            critic_score=source.critic_score,
         )
 
 

@@ -54,6 +54,9 @@ class AppConfig:
     tavily_search_depth: str
     tavily_topic: str
     min_source_quality_score: float
+    min_intent_alignment_score: float
+    min_critic_relevance_score: float
+    min_critic_overall_score: float
     retrieval_top_k: int
     private_data_dir: Path | None
     chroma_persist_dir: Path | None
@@ -89,6 +92,9 @@ def load_config() -> AppConfig:
         tavily_search_depth=os.getenv("TAVILY_SEARCH_DEPTH", "advanced").strip() or "advanced",
         tavily_topic=os.getenv("TAVILY_TOPIC", "general").strip() or "general",
         min_source_quality_score=_read_float("MIN_SOURCE_QUALITY_SCORE", 0.55),
+        min_intent_alignment_score=_read_float("MIN_INTENT_ALIGNMENT_SCORE", 0.3),
+        min_critic_relevance_score=_read_float("MIN_CRITIC_RELEVANCE_SCORE", 0.55),
+        min_critic_overall_score=_read_float("MIN_CRITIC_OVERALL_SCORE", 0.6),
         retrieval_top_k=_read_int("RETRIEVAL_TOP_K", 3),
         private_data_dir=private_data_dir,
         chroma_persist_dir=chroma_persist_dir,

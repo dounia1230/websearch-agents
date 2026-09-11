@@ -7,7 +7,13 @@ from app.schemas import SourceRecord
 
 
 def search_web(query: str, config: AppConfig) -> list[SourceRecord]:
-    from tavily import TavilyClient
+    try:
+        from tavily import TavilyClient
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Tavily client dependency is missing. Install project requirements in the same Python "
+            "environment running FastAPI: `pip install -r requirements.txt` or `pip install tavily-python`."
+        ) from exc
 
     if not config.tavily_api_key:
         raise ValueError("TAVILY_API_KEY is required for Tavily search.")

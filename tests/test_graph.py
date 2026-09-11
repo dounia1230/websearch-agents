@@ -18,12 +18,13 @@ def test_route_after_critique_revisits_research_when_requested() -> None:
         missing_angles=["regulation"],
         unsupported_or_weak_claims=[],
         follow_up_queries=["latest regulation market analysis"],
+        source_assessments=[],
         confidence=0.7,
     )
 
     route = _route_after_critique(state, DummyConfig())
 
-    assert route == "research"
+    assert route == "planner"
 
 
 def test_route_after_summary_only_uses_vision_when_images_exist() -> None:

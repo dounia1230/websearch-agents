@@ -3,12 +3,22 @@ from __future__ import annotations
 import json
 from typing import TypedDict
 
-from app.schemas import CritiqueReport, FinalReport, PipelineIssue, ResearchBrief, SourceRecord, SummaryReport, VisionReport
+from app.schemas import (
+    CritiqueReport,
+    FinalReport,
+    PipelineIssue,
+    PlannerOutput,
+    ResearchBrief,
+    SourceRecord,
+    SummaryReport,
+    VisionReport,
+)
 
 
 class ResearchState(TypedDict, total=False):
     question: str
     image_paths: list[str]
+    query_plan: PlannerOutput | None
     search_queries: list[str]
     research_passes: int
     candidate_sources: list[SourceRecord]
@@ -26,6 +36,7 @@ def make_initial_state(question: str, image_paths: list[str] | None = None) -> R
     return {
         "question": question,
         "image_paths": image_paths or [],
+        "query_plan": None,
         "search_queries": [],
         "research_passes": 0,
         "candidate_sources": [],

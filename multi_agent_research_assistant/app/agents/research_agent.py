@@ -6,25 +6,34 @@ import logging
 from app.config import AppConfig
 from app.llm import invoke_structured_model
 from app.prompts.research_prompt import RESEARCH_SYSTEM_PROMPT
-from app.schemas import PipelineIssue, ResearchBrief, SourceRecord
+from app.schemas import PipelineIssue, PlannerOutput, ResearchBrief, SourceRecord
 from app.state import ResearchState, append_issues, serialize_issues_for_prompt, serialize_sources_for_prompt
 from app.tools.jina_reader import read_url
 from app.tools.private_retrieval import retrieve_private_context
 from app.tools.tavily_tool import search_web
-from app.utils.source_quality import deduplicate_sources, evaluate_source_quality, merge_sources
+from app.utils.source_quality import (
+    deduplicate_sources,
+    evaluate_source_intent_alignment,
+    evaluate_source_quality,
+    merge_sources,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def run_research(state: ResearchState, config: AppConfig) -> ResearchState:
     question = state["question"].strip()
+    query_plan = state.get("query_plan")
+    if query_plan is None:
+        raise RuntimeError("Research agent requires a planner output before retrieval begins.")
+
     research_pass = state.get("research_passes", 0) + 1
     prior_critique = state.get("critique")
     critique_queries = prior_critique.follow_up_queries if prior_critique else []
-    search_queries = _build_search_queries(question, critique_queries, config.max_follow_up_queries)
+    search_queries = _build_search_queries(query_plan, critique_queries, config.max_follow_up_queries)
     issues: list[PipelineIssue] = []
 
-    private_sources, retrieval_issues = retrieve_private_context(question, config)
+    private_sources, retrieval_issues = retrieve_private_context(query_plan.interpreted_query, config)
     issues.extend(retrieval_issues)
 
     new_web_sources: list[SourceRecord] = []
@@ -51,15 +60,28 @@ def run_research(state: ResearchState, config: AppConfig) -> ResearchState:
     )
     all_candidates = _reindex_sources(all_candidates)
 
-    selected_sources = [
-        evaluate_source_quality(source, config.min_source_quality_score)
-        for source in all_candidates
-    ]
+    selected_sources = []
+    for source in all_candidates:
+        quality_evaluated = evaluate_source_quality(source, config.min_source_quality_score)
+        intent_evaluated = evaluate_source_intent_alignment(
+            quality_evaluated,
+            query_plan,
+            config.min_intent_alignment_score,
+        )
+        selected_sources.append(intent_evaluated)
     selected_sources = [source for source in selected_sources if source.included]
-    selected_sources.sort(key=lambda source: source.quality_score or 0.0, reverse=True)
+    selected_sources.sort(
+        key=lambda source: (
+            source.relevance_to_user_intent_score
+            or source.intent_alignment_score
+            or 0.0,
+            source.quality_score or 0.0,
+        ),
+        reverse=True,
+    )
 
     if not selected_sources:
-        raise RuntimeError("No usable sources were collected from Tavily or private retrieval.")
+        raise _build_no_sources_error(issues, all_candidates)
 
     brief = invoke_structured_model(
         config=config,
@@ -67,6 +89,7 @@ def run_research(state: ResearchState, config: AppConfig) -> ResearchState:
         system_prompt=RESEARCH_SYSTEM_PROMPT,
         user_input=_build_research_prompt_input(
             question=question,
+            query_plan=query_plan,
             research_pass=research_pass,
             critique=prior_critique.model_dump() if prior_critique else None,
             sources=selected_sources,
@@ -84,8 +107,8 @@ def run_research(state: ResearchState, config: AppConfig) -> ResearchState:
     }
 
 
-def _build_search_queries(question: str, follow_up_queries: list[str], limit: int) -> list[str]:
-    queries = [question]
+def _build_search_queries(query_plan: PlannerOutput, follow_up_queries: list[str], limit: int) -> list[str]:
+    queries = list(query_plan.search_queries)
     for query in follow_up_queries[:limit]:
         normalized = query.strip()
         if normalized and normalized not in queries:
@@ -93,9 +116,33 @@ def _build_search_queries(question: str, follow_up_queries: list[str], limit: in
     return queries
 
 
+def _build_no_sources_error(
+    issues: list[PipelineIssue],
+    all_candidates: list[SourceRecord],
+) -> RuntimeError:
+    search_failure = next(
+        (
+            issue
+            for issue in issues
+            if issue.stage == "research" and issue.message.startswith("Search failed for query")
+        ),
+        None,
+    )
+    if search_failure is not None:
+        return RuntimeError(search_failure.message)
+
+    if all_candidates:
+        return RuntimeError(
+            "All collected sources were rejected by quality or intent-alignment filtering."
+        )
+
+    return RuntimeError("No usable sources were collected from Tavily or private retrieval.")
+
+
 def _build_research_prompt_input(
     *,
     question: str,
+    query_plan: PlannerOutput,
     research_pass: int,
     critique: dict | None,
     sources: list[SourceRecord],
@@ -104,6 +151,7 @@ def _build_research_prompt_input(
     return "\n\n".join(
         [
             f"Question:\n{question}",
+            f"Interpreted query plan:\n{query_plan.model_dump_json(indent=2)}",
             f"Research pass:\n{research_pass}",
             "Prior critique:\n" + ("null" if critique is None else json.dumps(critique, indent=2)),
             f"Structured sources:\n{serialize_sources_for_prompt(sources)}",
