@@ -6,8 +6,7 @@ import logging
 from dotenv import load_dotenv
 
 from app.config import load_config
-from app.graph import build_graph
-from app.state import make_initial_state
+from app.service import get_final_report, run_workflow
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,11 +33,11 @@ def main() -> None:
         raise SystemExit("A research question is required.")
 
     config = load_config()
-    graph = build_graph(config)
-    result = graph.invoke(make_initial_state(question, image_paths=args.image))
+    result = run_workflow(question=question, image_paths=args.image, config=config)
+    final_report = get_final_report(result)
 
     print()
-    print(result.get("final_answer", "No final report was generated."))
+    print(final_report.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
