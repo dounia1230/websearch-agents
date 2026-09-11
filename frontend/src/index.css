@@ -1,0 +1,56 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-background font-sans text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 20%),
+      radial-gradient(circle at 85% 10%, rgba(37, 99, 235, 0.15), transparent 16%),
+      linear-gradient(180deg, #f7f9fc 0%, #edf2f8 100%);
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  ::selection {
+    background: rgba(37, 99, 235, 0.18);
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.88));
+    backdrop-filter: blur(12px);
+  }
+
+  .panel-border {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+  }
+
+  .agent-connector {
+    background:
+      linear-gradient(180deg, rgba(21, 62, 117, 0.18), rgba(59, 130, 246, 0.06));
+  }
+}
+
+body::-webkit-scrollbar {
+  width: 10px;
+}
+
+body::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.3);
+  border-radius: 999px;
+}
